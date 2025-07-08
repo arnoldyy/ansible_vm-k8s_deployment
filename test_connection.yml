@@ -1,0 +1,31 @@
+# Netapp storage setup playbook
+# Tested environment:
+#   - collection: 
+#   - OS Platform: WSL Ubuntu 20.04.2 LTS
+#   - Ansible: core 2.16.3
+#   - Python: 3.12.3
+#   - pyvmomi: 8.0.2.0.1
+#   - open-vm-tools
+
+---
+- name: Test connection to vSphere
+  hosts: localhost
+  gather_facts: no
+  vars:
+    vcenter_hostname: "vcsa-storage.testlab.systex.hk" # ip: 192.168.128.200
+    vcenter_username: "administrator@vsphere.local"
+    vcenter_password: "P@ssw0rd"
+  tasks:
+    - name: Gather all domain user and group of vsphere.local
+      community.vmware.vcenter_domain_user_group_info:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        domain: vsphere.local
+        search_string: ''
+      register: gather_all_domain_user_group_result
+    
+    - name: Print all domain user and group of vsphere.local
+      debug:
+        msg: "{{ gather_all_domain_user_group_result}}"
