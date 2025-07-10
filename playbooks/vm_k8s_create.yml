@@ -1,6 +1,6 @@
-# Netapp storage setup playbook
+# k8s setup playbook
 # Tested environment:
-#   - collection: 
+#   - collection: VM
 #   - localhost OS Platform: WSL Ubuntu 20.04.2 LTS
 #   - Ansible: core 2.16.3
 #   - Python: 3.12.3

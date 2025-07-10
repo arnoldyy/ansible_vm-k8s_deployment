@@ -3,13 +3,21 @@
   hosts: kube_node
   become: yes
   tasks:
+    - name: Ensure kubelet is running
+      systemd:
+        name: kubelet
+        state: started
+        enabled: yes
+
     - name: Copy join command to worker nodes
       copy:
         src: /tmp/kubernetes_join_command
         dest: /tmp/kubernetes_join_command
-        mode: '0777'
+        mode: '0644'
 
     - name: Join cluster
       command: sh /tmp/kubernetes_join_command
       register: joined
+      args:
+        creates: /etc/kubernetes/kubelet.conf
       changed_when: joined.rc == 0
