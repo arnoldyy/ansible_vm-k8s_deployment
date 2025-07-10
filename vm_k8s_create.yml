@@ -1,7 +1,15 @@
+# Netapp storage setup playbook
+# Tested environment:
+#   - collection: 
+#   - localhost OS Platform: WSL Ubuntu 20.04.2 LTS
+#   - Ansible: core 2.16.3
+#   - Python: 3.12.3
+#   - pyvmomi: 8.0.2.0.1
+#   - open-vm-tools
+#   - ubuntu: 24.04 LTS
 # username: ubuntu
 # password: P"ssw0rd
 
----
 - name: Create VMs in vSphere
   hosts: localhost
   gather_facts: no
@@ -23,7 +31,7 @@
     vm_ips:
       - "192.168.148.69"  # Master
       - "192.168.148.70"  # Worker 1
-      - "192.168.148.71"  # Worker 2
+      - "192.168.148.59"  # Worker 2
     vm_netmask: "255.255.128.0"
     vm_gateway: "192.168.128.1"
     vm_dns_servers:

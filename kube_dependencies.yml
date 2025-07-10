@@ -1,66 +1,121 @@
-# ansible-playbook -i inventory/hosts.ini kube_dependencies.yml
-
 ---
-- name: Install Kubernetes dependencies
+- name: Install Kubernetes dependencies on Ubuntu VM
   hosts: all
   become: yes
   tasks:
-    - name: Install packages for apt over HTTPS
+    - name: Ensure systemd-resolved is installed
       apt:
-        name: "{{ packages }}"
+        name: systemd-resolved
         state: present
+      ignore_errors: yes
+
+    - name: Ensure systemd-resolved is enabled and running
+      systemd:
+        name: systemd-resolved
+        state: started
+        enabled: yes
+
+    - name: Configure DNS servers in resolved.conf
+      lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: '^DNS='
+        line: 'DNS=8.8.8.8 8.8.4.4'
+        create: yes
+      notify: Restart systemd-resolved
+
+    - name: Ensure curl and gnupg are installed
+      apt:
+        name:
+          - curl
+          - gnupg
+        state: present
+      ignore_errors: yes
+
+    - name: Update apt cache with retries
+      apt:
         update_cache: yes
-      vars:
-        packages:
+        cache_valid_time: 3600
+      register: apt_update
+      until: apt_update is success
+      retries: 5
+      delay: 10
+      ignore_errors: yes
+
+    - name: Fail if apt cache update failed
+      fail:
+        msg: "Failed to update apt cache after multiple retries. Check network or DNS configuration."
+      when: apt_update is failed
+
+    - name: Install required system packages
+      apt:
+        name:
           - apt-transport-https
           - ca-certificates
           - curl
-          - gnupg-agent
           - software-properties-common
-
-    - name: Add Docker GPG key
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
+          - gnupg
         state: present
 
-    - name: Add Docker repository
+    - name: Remove old Kubernetes apt repository file if exists
+      file:
+        path: /etc/apt/sources.list.d/kubernetes.list
+        state: absent
+
+    - name: Add Kubernetes apt key
+      shell: |
+        curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key | gpg --dearmor -o /usr/share/keyrings/kubernetes-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/kubernetes-archive-keyring.gpg
+      register: add_key
+      until: add_key is success
+      retries: 5
+      delay: 10
+      ignore_errors: yes
+
+    - name: Fail if adding Kubernetes apt key failed
+      fail:
+        msg: "Failed to add Kubernetes apt key. Check DNS or network connectivity to pkgs.k8s.io."
+      when: add_key is failed
+
+    - name: Add Kubernetes apt repository
       apt_repository:
-        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+        repo: "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
         state: present
+        filename: kubernetes
+      register: add_repo
+      until: add_repo is success
+      retries: 5
+      delay: 10
+      ignore_errors: yes
 
-    - name: Install Docker
+    - name: Fail if adding Kubernetes apt repository failed
+      fail:
+        msg: "Failed to add Kubernetes apt repository. Check repository URL or network connectivity."
+      when: add_repo is failed
+
+    - name: Update apt cache after adding repository
       apt:
-        name: "{{ packages }}"
-        state: present
         update_cache: yes
-      vars:
-        packages:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
+      register: apt_update_repo
+      until: apt_update_repo is success
+      retries: 5
+      delay: 10
+      ignore_errors: yes
 
-    - name: Add Kubernetes GPG key
-      apt_key:
-        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
-        state: present
-
-    - name: Add Kubernetes repository
-      apt_repository:
-        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
-        state: present
+    - name: Fail if apt cache update failed after adding repository
+      fail:
+        msg: "Failed to update apt cache after adding Kubernetes repository. Check GPG key, repository URL, or network."
+      when: apt_update_repo is failed
 
     - name: Install Kubernetes components
       apt:
-        name: "{{ packages }}"
+        name:
+          - kubelet=1.28.0-*
+          - kubeadm=1.28.0-*
+          - kubectl=1.28.0-*
         state: present
-        update_cache: yes
-      vars:
-        packages:
-          - kubelet
-          - kubeadm
-          - kubectl
 
-    - name: Hold Kubernetes packages
+    - name: Hold Kubernetes packages at current version
       dpkg_selections:
         name: "{{ item }}"
         selection: hold
@@ -69,15 +124,78 @@
         - kubeadm
         - kubectl
 
-    - name: Disable swap
-      command: swapoff -a
-      when: ansible_swaptotal_mb > 0
+    - name: Install containerd
+      apt:
+        name: containerd
+        state: present
 
-    - name: Remove swap from fstab
-      mount:
+    - name: Create containerd configuration directory
+      file:
+        path: /etc/containerd
+        state: directory
+        mode: '0755'
+
+    - name: Configure containerd
+      shell: |
+        containerd config default > /etc/containerd/config.toml
+      args:
+        creates: /etc/containerd/config.toml
+
+    - name: Ensure containerd uses systemd cgroup driver
+      lineinfile:
+        path: /etc/containerd/config.toml
+        regexp: '^(\s*SystemdCgroup\s*=\s*).*$'
+        line: '            SystemdCgroup = true'
+        backrefs: yes
+
+    - name: Enable and start containerd service
+      systemd:
+        name: containerd
+        enabled: yes
+        state: started
+
+    - name: Disable swap
+      shell: |
+        swapoff -a
+        sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+      args:
+        executable: /bin/bash
+
+    - name: Load required kernel modules
+      modprobe:
         name: "{{ item }}"
-        fstype: swap
-        state: absent
+        state: present
       loop:
-        - swap
-        - none
+        - overlay
+        - br_netfilter
+
+    - name: Persist kernel modules
+      lineinfile:
+        path: /etc/modules-load.d/k8s.conf
+        line: "{{ item }}"
+        create: yes
+        mode: '0644'
+      loop:
+        - overlay
+        - br_netfilter
+
+    - name: Set sysctl parameters for Kubernetes
+      sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_file: /etc/sysctl.d/k8s.conf
+      loop:
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: '1' }
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: '1' }
+        - { name: 'net.ipv4.ip_forward', value: '1' }
+        - { name: 'net.ipv6.conf.all.forwarding', value: '1' }
+
+    - name: Apply sysctl settings
+      command: sysctl --system
+
+  handlers:
+    - name: Restart systemd-resolved
+      systemd:
+        name: systemd-resolved
+        state: restarted
