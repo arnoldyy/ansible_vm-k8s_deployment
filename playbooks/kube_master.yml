@@ -1,47 +1,8 @@
+---
 - name: Initialize Kubernetes control plane
   hosts: kube_control_plane
   become: yes
   tasks:
-    # - name: Disable swap
-    #   command: swapoff -a
-    #   when: ansible_swaptotal_mb > 0
-
-    # - name: Remove swap entry from fstab
-    #   replace:
-    #     path: /etc/fstab
-    #     regexp: '^([^#].*?\sswap\s+.*)$'
-    #     replace: '#\1'
-    #   when: ansible_swaptotal_mb > 0
-
-    # - name: Stop kubelet and containerd
-    #   systemd:
-    #     name: "{{ item }}"
-    #     state: stopped
-    #   loop:
-    #     - kubelet
-    #     - containerd
-
-    # - name: Unmount kubelet volume mounts
-    #   command: umount {{ item }}
-    #   loop: "{{ ansible_mounts | selectattr('mount', 'match', '^/var/lib/kubelet/.*') | map(attribute='mount') | list }}"
-    #   ignore_errors: yes
-
-    # - name: Clean up previous Kubernetes configuration
-    #   file:
-    #     path: "{{ item }}"
-    #     state: absent
-    #   loop:
-    #     - /etc/kubernetes
-    #     - /var/lib/kubelet
-    #     - /var/lib/etcd
-    #     - /home/ubuntu/.kube
-    #     - /tmp/kubernetes_join_command
-    #   register: cleanup
-    #   retries: 5
-    #   delay: 5
-    #   until: cleanup is success
-    #   ignore_errors: yes
-
     - name: Create kubelet directory
       file:
         path: /var/lib/kubelet
@@ -50,15 +11,12 @@
         group: root
         mode: '0755'
 
-    - name: Ensure containerd and kubelet are running
+    - name: Ensure kubelet is running
       systemd:
-        name: "{{ item }}"
+        name: kubelet
         state: started
         enabled: yes
-      loop:
-        - containerd
-        - kubelet
-
+        
     - name: Configure containerd CRI endpoint
       copy:
         content: |
@@ -165,6 +123,9 @@
       register: join_command
       when: kubeadm_init is success
 
+    # Both tasks below depend on successful join command creation.
+    # The 'when: join_command is success' condition ensures they only run if the join command was generated.
+
     - name: Copy join command to control plane
       copy:
         content: "{{ join_command.stdout }}"
@@ -179,7 +140,6 @@
         dest: /tmp/kubernetes_join_command
         flat: yes
       when: join_command is success
-
   handlers:
     - name: Restart containerd
       systemd:

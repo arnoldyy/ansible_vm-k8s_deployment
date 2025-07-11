@@ -1,0 +1,22 @@
+vcenter_hostname: "vcsa-storage.testlab.systex.hk" # ip: 192.168.128.200
+vcenter_username: "administrator@vsphere.local"
+vcenter_password: "P@ssw0rd"
+vcenter_datacenter: "SYSTEX"
+vcenter_cluster: "Cluster"
+vm_template: "ubuntu-22.04-template"
+vm_folder: "/Direct Team/Arnold Yeung"
+vm_network: "VM Lab Network (subnet 192.168.128.0/17)"
+vm_datastore: "Lab_DS"
+vm_count: 3 
+vm_base_name: "ay_k8s_node"
+vm_cpu: 2
+vm_memory: 4096  
+vm_disk_size: 100
+vm_ips:
+  - "192.168.148.69"  # Master
+  - "192.168.148.70"  # Worker 1
+  - "192.168.148.59"  # Worker 2
+vm_netmask: "255.255.128.0"
+vm_gateway: "192.168.128.1"
+vm_dns_servers:
+  - "192.168.148.54"

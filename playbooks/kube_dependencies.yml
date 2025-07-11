@@ -3,48 +3,31 @@
   hosts: all
   become: yes
   tasks:
-    - name: Ensure systemd-resolved is installed
-      apt:
-        name: systemd-resolved
-        state: present
-      ignore_errors: yes
-
-    - name: Ensure systemd-resolved is enabled and running
-      systemd:
-        name: systemd-resolved
-        state: started
-        enabled: yes
-
     - name: Configure DNS servers in resolved.conf
-      lineinfile:
-        path: /etc/systemd/resolved.conf
-        regexp: '^DNS='
-        line: 'DNS=8.8.8.8 8.8.4.4'
-        create: yes
+      block:
+        - name: Ensure systemd-resolved is installed and running
+          apt:
+            name: systemd-resolved
+            state: present
+          ignore_errors: yes
+        - name: Ensure systemd-resolved is enabled and running
+          systemd:
+            name: systemd-resolved
+            state: started
+            enabled: yes
+        - name: DNS
+          lineinfile:
+            path: /etc/systemd/resolved.conf
+            regexp: '^DNS='
+            line: 'DNS=8.8.8.8 8.8.4.4'
+            create: yes
+        - name: Fallback DNS
+          lineinfile:
+            path: /etc/systemd/resolved.conf
+            regexp: '^FallbackDNS='
+            line: 'FallbackDNS=1.1.1.1 1.0.0.1'
+            create: yes
       notify: Restart systemd-resolved
-
-    - name: Ensure curl and gnupg are installed
-      apt:
-        name:
-          - curl
-          - gnupg
-        state: present
-      ignore_errors: yes
-
-    - name: Update apt cache with retries
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
-      register: apt_update
-      until: apt_update is success
-      retries: 5
-      delay: 10
-      ignore_errors: yes
-
-    - name: Fail if apt cache update failed
-      fail:
-        msg: "Failed to update apt cache after multiple retries. Check network or DNS configuration."
-      when: apt_update is failed
 
     - name: Install required system packages
       apt:
@@ -54,12 +37,31 @@
           - curl
           - software-properties-common
           - gnupg
+          - kubelet=1.28.0-*
+          - kubeadm=1.28.0-*
+          - kubectl=1.28.0-*
+          - containerd
         state: present
 
-    - name: Remove old Kubernetes apt repository file if exists
-      file:
-        path: /etc/apt/sources.list.d/kubernetes.list
-        state: absent
+    - name: Update apt cache with retries
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      register: apt_update
+      until: apt_update is success
+      retries: 3
+      delay: 10
+      ignore_errors: yes
+
+    - name: Fail if apt cache update failed
+      fail:
+        msg: "Failed to update apt cache after multiple retries. Check network or DNS configuration."
+      when: apt_update is failed
+
+    # - name: Remove old Kubernetes apt repository file if exists
+    #   file:
+    #     path: /etc/apt/sources.list.d/kubernetes.list
+    #     state: absent
 
     - name: Add Kubernetes apt key
       shell: |
@@ -107,13 +109,13 @@
         msg: "Failed to update apt cache after adding Kubernetes repository. Check GPG key, repository URL, or network."
       when: apt_update_repo is failed
 
-    - name: Install Kubernetes components
-      apt:
-        name:
-          - kubelet=1.28.0-*
-          - kubeadm=1.28.0-*
-          - kubectl=1.28.0-*
-        state: present
+    # - name: Install Kubernetes components
+    #   apt:
+    #     name:
+    #       - kubelet=1.28.0-*
+    #       - kubeadm=1.28.0-*
+    #       - kubectl=1.28.0-*
+    #     state: present
 
     - name: Hold Kubernetes packages at current version
       dpkg_selections:
@@ -124,35 +126,34 @@
         - kubeadm
         - kubectl
 
-    - name: Install containerd
-      apt:
-        name: containerd
-        state: present
+    # - name: Install containerd
+    #   apt:
+    #     name: containerd
+    #     state: present
 
-    - name: Create containerd configuration directory
-      file:
-        path: /etc/containerd
-        state: directory
-        mode: '0755'
-
-    - name: Configure containerd
-      shell: |
-        containerd config default > /etc/containerd/config.toml
-      args:
-        creates: /etc/containerd/config.toml
-
-    - name: Ensure containerd uses systemd cgroup driver
-      lineinfile:
-        path: /etc/containerd/config.toml
-        regexp: '^(\s*SystemdCgroup\s*=\s*).*$'
-        line: '            SystemdCgroup = true'
-        backrefs: yes
-
-    - name: Enable and start containerd service
-      systemd:
-        name: containerd
-        enabled: yes
-        state: started
+    # Configure
+    - block: 
+      - name: Create containerd configuration directory
+        file:
+          path: /etc/containerd
+          state: directory
+          mode: '0755'
+      - name: Configure containerd
+        shell: |
+          containerd config default > /etc/containerd/config.toml
+        args:
+          creates: /etc/containerd/config.toml
+      - name: Ensure containerd uses systemd cgroup driver
+        lineinfile:
+          path: /etc/containerd/config.toml
+          regexp: '^(\s*SystemdCgroup\s*=\s*).*$'
+          line: '            SystemdCgroup = true'
+          backrefs: yes
+      - name: Enable and start containerd service
+        systemd:
+          name: containerd
+          enabled: yes
+          state: started
 
     - name: Disable swap
       shell: |
