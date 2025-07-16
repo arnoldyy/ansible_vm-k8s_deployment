@@ -99,7 +99,7 @@
       when: kubeadm_init is success
 
     - name: Install Flannel network
-      command: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+      command: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml
       environment:
         KUBECONFIG: /home/ubuntu/.kube/config
       register: flannel_install

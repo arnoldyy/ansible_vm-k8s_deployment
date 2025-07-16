@@ -64,15 +64,17 @@ function yes_no () {
 }
 
 log_open
+
 read -p "run ansible_deps/install_deps_virtual.sh to meet ansible env? (yes/no): " yn
-if [[ $yn == "yes" ]]; then
-    ./ansible_deps/install_deps.sh
-else
-    echo "Skipping virtual environment setup."
-fi
+[[ $yn == "yes" ]] && ./ansible_deps/install_deps.sh || echo "Skipping virtual environment setup."
 source $dir_path"/ansible_deps/venv/bin/activate"
-ansible-playbook $dir_path"/playbooks/vm_k8s_create.yml"
-ansible-playbook $dir_path"/playbooks/kube_dependencies.yml" -K
+
+read -p "create k8s vm? (yes/no): " yn
+[[ $yn == "yes" ]] && ansible-playbook $dir_path"/playbooks/vm_k8s_create.yml" || echo "Skipping vm creation."
+
+read -p "setup kube dependencies? (yes/no): " yn 
+[[ $yn == "yes" ]] && ansible-playbook $dir_path"/playbooks/kube_dependencies.yml" -K || echo "Skipping kube dependencies setup."
+
 ansible-playbook $dir_path"/playbooks/kube_master.yml" -K
 ansible-playbook $dir_path"/playbooks/kube_workers.yml" -K
 deactivate
